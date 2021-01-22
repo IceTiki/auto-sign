@@ -10,6 +10,7 @@ from pyDes import des, CBC, PAD_PKCS5
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 from urllib3.exceptions import InsecureRequestWarning
+from math import radians, cos, sin, asin, sqrt
 
 # debug模式
 debug = False
@@ -210,7 +211,8 @@ def fillForm(task, session, user, apis):
     form['signInstanceWid'] = task['signInstanceWid']
     form['longitude'] = user['lon']
     form['latitude'] = user['lat']
-    form['isMalposition'] = task['isMalposition']
+    sPS=task['signPlaceSelected'][0]
+    form['isMalposition'] = ismalposition(user['lon'],user['lat'],sPS['longitude'],sPS['latitude'],sPS['radius'])
     form['abnormalReason'] = user['abnormalReason']
     form['position'] = user['address']
     form['uaIsCpadaily'] = True
@@ -286,7 +288,9 @@ def submitForm(session, user, form, apis):
     res = session.post(url='https://{host}/wec-counselor-sign-apps/stu/sign/submitSign'.format(host=apis['host']),
                        headers=headers, data=json.dumps(form), verify=not debug)
     message = res.json()['message']
-    
+    #debug用，Qmsg反馈收发包
+    sendMessage(str(json.dumps(form)),user['qq'])
+    sendMessage(str(res.json),user['qq'])
     if message == 'SUCCESS':
         log('自动签到成功')
         sendMessage(user['username']+'自动签到成功',user['qq'])
@@ -308,6 +312,23 @@ def sendMessage(msg,qq):
         log('发送qmsg酱通知失败。。。')
         log(res.json())
 
+def ismalposition(lon1,lat1,lon2,lat2,radius):
+    lon1=float(lon1)
+    lat1=float(lat1)
+    lon2=float(lon2)
+    lat2=float(lat2)
+    radius=float(radius)
+    lon1, lat1, lon2, lat2 = map(radians, [float(lon1), float(lat1), float(lon2), float(lat2)])
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
+    c = 2 * asin(sqrt(a))
+    r = 6371  # 地球平均半径，单位为公里
+    dis=c * r * 1000 
+    if dis<radius:
+        return 0
+    else:
+        return 1
 
 # 主函数
 def main():
