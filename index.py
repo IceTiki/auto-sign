@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 from urllib3.exceptions import InsecureRequestWarning
 
 # debug模式
-debug = True
+debug = False
 if debug:
     requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
@@ -47,7 +47,7 @@ def log(content):
 def getCpdailyApis(user):
     apis = {}
     user = user['user']
-    schools = requests.get(url='https://www.cpdaily.com/v6/config/guest/tenant/list', verify=not debug).json()['data']
+    schools = requests.get(url='https://mobile.campushoy.com/v6/config/guest/tenant/list', verify=not debug).json()['data']
     flag = True
     for one in schools:
         if one['name'] == user['school']:
@@ -58,7 +58,7 @@ def getCpdailyApis(user):
             params = {
                 'ids': one['id']
             }
-            res = requests.get(url='https://www.cpdaily.com/v6/config/guest/tenant/info', params=params,
+            res = requests.get(url='https://mobile.campushoy.com/v6/config/guest/tenant/info', params=params,
                                verify=not debug)
             data = res.json()['data'][0]
             joinType = data['joinType']
@@ -104,16 +104,11 @@ def getSession(user, apis):
 
     cookies = {}
     # 借助上一个项目开放出来的登陆API，模拟登陆
-    res = ''
-    try:
-        res = requests.post(url=config['login']['api'], data=params, verify=not debug)
-    except Exception as e:
-        res = requests.post(url='http://127.0.0.1:8080/wisedu-unified-login-api-v1.0/api/login', data=params, verify=not debug)
-    
+    res = requests.post(url=config['login']['api'], data=params, verify=not debug)
     # cookieStr可以使用手动抓包获取到的cookie，有效期暂时未知，请自己测试
     # cookieStr = str(res.json()['cookies'])
     cookieStr = str(res.json()['cookies'])
-    # log(cookieStr) 调试时再输出
+    log(cookieStr)
     if cookieStr == 'None':
         log(res.json())
         exit(-1)
@@ -128,8 +123,8 @@ def getSession(user, apis):
     return session
 
 
-# 获取最新未签到任务并全部签到
-def getUnSignedTasksAndSign(session, apis, user):
+# 获取最新未签到任务
+def getUnSignedTasks(session, apis, user):
     headers = {
         'Accept': 'application/json, text/plain, */*',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.97 Safari/537.36',
@@ -140,28 +135,26 @@ def getUnSignedTasksAndSign(session, apis, user):
     }
     # 第一次请求每日签到任务接口，主要是为了获取MOD_AUTH_CAS
     res = session.post(
-        url='https://{host}/wec-counselor-sign-apps/stu/sign/queryDailySginTasks'.format(host=apis['host']),
+        url='https://{host}/wec-counselor-sign-apps/stu/sign/getStuSignInfosInOneDay'.format(host=apis['host']),
         headers=headers, data=json.dumps({}), verify=not debug)
     # 第二次请求每日签到任务接口，拿到具体的签到任务
     res = session.post(
-        url='https://{host}/wec-counselor-sign-apps/stu/sign/queryDailySginTasks'.format(host=apis['host']),
+        url='https://{host}/wec-counselor-sign-apps/stu/sign/getStuSignInfosInOneDay'.format(host=apis['host']),
         headers=headers, data=json.dumps({}), verify=not debug)
     if len(res.json()['datas']['unSignedTasks']) < 1:
         log('当前没有未签到任务')
-        exit(-1)
+        return 1
     # log(res.json())
-    for i in range(0, len(res.json()['datas']['unSignedTasks'])):
-       #if '出校' in res.json()['datas']['unSignedTasks'][i]['taskName'] == False:
-        # if '入校' in res.json()['datas']['unSignedTasks'][i]['taskName'] == False:
-            latestTask = res.json()['datas']['unSignedTasks'][i]
-            params = {
-              'signInstanceWid': latestTask['signInstanceWid'],
-              'signWid': latestTask['signWid']
-            }
-            task = getDetailTask(session, params, apis)
-            form = fillForm(task, session, user, apis)
-            
-            submitForm(session, user, form, apis)
+    # title检测
+    for i in range(10):
+        latestTask = res.json()['datas']['unSignedTasks'][i]
+        log('title测试输出：'+str(latestTask))
+        if latestTask['taskName']==config['cpdaily']['title']:
+            sendMessage(str(latestTask['taskName']),user['user']['qq'])
+            return {'signInstanceWid': latestTask['signInstanceWid'],'signWid': latestTask['signWid']}
+    log('title匹配失败')
+    sendMessage('title匹配失败',user['user']['qq'])
+    return 1
 
 
 # 获取签到任务详情
@@ -175,7 +168,7 @@ def getDetailTask(session, params, apis):
         'Content-Type': 'application/json;charset=UTF-8'
     }
     res = session.post(
-        url='https://{host}/wec-counselor-sign-apps/stu/sign/detailSignTaskInst'.format(host=apis['host']),
+        url='https://{host}/wec-counselor-sign-apps/stu/sign/detailSignInstance'.format(host=apis['host']),
         headers=headers, data=json.dumps(params), verify=not debug)
     data = res.json()['datas']
     return data
@@ -220,6 +213,7 @@ def fillForm(task, session, user, apis):
     form['isMalposition'] = task['isMalposition']
     form['abnormalReason'] = user['abnormalReason']
     form['position'] = user['address']
+    form['uaIsCpadaily'] = True
     return form
 
 
@@ -255,7 +249,7 @@ def getPictureUrl(session, fileName, apis):
 
 
 # DES加密
-def DESEncrypt(s, key='ST83=@XV'):
+def DESEncrypt(s, key='b3L26XNL'):
     key = key
     iv = b"\x01\x02\x03\x04\x05\x06\x07\x08"
     k = des(key, CBC, iv, pad=None, padmode=PAD_PKCS5)
@@ -270,8 +264,8 @@ def submitForm(session, user, form, apis):
     extension = {
         "lon": user['lon'],
         "model": "OPPO R11 Plus",
-        "appVersion": "8.1.14",
-        "systemVersion": "8.0",
+        "appVersion": "8.2.14",
+        "systemVersion": "7.0.1",
         "userId": user['username'],
         "systemName": "android",
         "lat": user['lat'],
@@ -280,7 +274,7 @@ def submitForm(session, user, form, apis):
 
     headers = {
         # 'tenantId': '1019318364515869',
-        'User-Agent': 'Mozilla/5.0 (Linux; Android 4.4.4; OPPO R11 Plus Build/KTU84P) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/33.0.0.0 Safari/537.36 okhttp/3.12.4',
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 8.2.14; OPPO R11 Plus Build/KTU84P) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/33.0.0.0 Safari/537.36 okhttp/3.12.4',
         'CpdailyStandAlone': '0',
         'extension': '1',
         'Cpdaily-Extension': DESEncrypt(json.dumps(extension)),
@@ -289,48 +283,45 @@ def submitForm(session, user, form, apis):
         # 'Host': 'swu.cpdaily.com',
         'Connection': 'Keep-Alive'
     }
-    res = session.post(url='https://{host}/wec-counselor-sign-apps/stu/sign/completeSignIn'.format(host=apis['host']),
+    res = session.post(url='https://{host}/wec-counselor-sign-apps/stu/sign/submitSign'.format(host=apis['host']),
                        headers=headers, data=json.dumps(form), verify=not debug)
     message = res.json()['message']
+    
     if message == 'SUCCESS':
         log('自动签到成功')
-        sendMessage('自动签到成功', user['email'])
+        sendMessage(user['username']+'自动签到成功',user['qq'])
     else:
         log('自动签到失败，原因是：' + message)
-        # sendMessage('自动签到失败，原因是：' + message, user['email'])
+        sendMessage(user['username']+'自动签到失败，原因是：' + message,user['qq'])
         exit(-1)
 
 
-# 发送邮件通知
-def sendMessage(msg, email):
-    send = email
-    if msg.count("未开始")>0:
-        return ''
-    try:
-        if send != '':
-                log('正在发送邮件通知。。。')
-                log(getTimeStr())
- #               sendMessageWeChat(msg + getTimeStr(), '今日校园自动签到结果通知')
-    
-                res = requests.post(url='http://www.zimo.wiki:8080/mail-sender/sendMail',
-                            data={'title': '今日校园自动签到结果通知' + getTimeStr(), 'content': msg, 'to': send}, verify=not debug)
-                code = res.json()['code']
-                if code == 0:
-                    log('发送邮件通知成功。。。')
-                else:
-                    log('发送邮件通知失败。。。')
-                log(res.json())
-    except Exception as e:
-        log("send failed")
-
+# 发送Qmsg酱通知
+def sendMessage(msg,qq):
+    Qkeyurl=config['qmsg']['qmsgkey']
+    log('正在发送qmsg酱通知。。。')
+    res = requests.post(url=Qkeyurl,data={'msg': msg,'qq':qq})
+    code = res.json()['code']
+    if code == 0:
+        log('发送qmsg酱通知成功。。。')
+    else:
+        log('发送qmsg酱通知失败。。。')
+        log(res.json())
 
 
 # 主函数
 def main():
     for user in config['users']:
+        sendMessage('触发自动签到', user['user']['qq'])
         apis = getCpdailyApis(user)
         session = getSession(user, apis)
-        getUnSignedTasksAndSign(session, apis, user)
+        params = getUnSignedTasks(session, apis, user)
+        if params==1:
+            continue
+        task = getDetailTask(session, params, apis)
+        form = fillForm(task, session, user, apis)
+        # form = getDetailTask(session, user, params, apis)
+        submitForm(session, user, form, apis)
 
 
 # 提供给腾讯云函数调用的启动函数
