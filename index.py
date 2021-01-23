@@ -289,8 +289,8 @@ def submitForm(session, user, form, apis):
                        headers=headers, data=json.dumps(form), verify=not debug)
     message = res.json()['message']
     #debug用，Qmsg反馈收发包
-    sendMessage(str(json.dumps(form)),user['qq'])
-    sendMessage(str(res.json),user['qq'])
+    #sendMessage(str(json.dumps(form)),user['qq'])
+    #sendMessage(str(res.json),user['qq'])
     if message == 'SUCCESS':
         log('自动签到成功')
         sendMessage(user['username']+'自动签到成功',user['qq'])
@@ -313,12 +313,8 @@ def sendMessage(msg,qq):
         log(res.json())
 
 def ismalposition(lon1,lat1,lon2,lat2,radius):
-    lon1=float(lon1)
-    lat1=float(lat1)
-    lon2=float(lon2)
-    lat2=float(lat2)
-    radius=float(radius)
-    lon1, lat1, lon2, lat2 = map(radians, [float(lon1), float(lat1), float(lon2), float(lat2)])
+    lon1, lat1, lon2, lat2, radians=map(float,[lon1, lat1, lon2, lat2, radians])
+    lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
     dlon = lon2 - lon1
     dlat = lat2 - lat1
     a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
